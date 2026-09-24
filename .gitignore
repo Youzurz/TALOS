@@ -1,0 +1,8 @@
+# Résultats d'audit et états : jamais dans ce dépôt public
+talos-audit-*
+*.tfstate
+*.tfstate.*
+ETAT.json
+*.state
+wazuh/etc/talos-supervision.json
+__pycache__/

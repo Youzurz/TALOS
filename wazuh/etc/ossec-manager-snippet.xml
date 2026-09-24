@@ -1,0 +1,30 @@
+<!--
+  À fusionner dans /var/ossec/etc/ossec.conf du MANAGER Wazuh (bloc <ossec_config>).
+  Puis : systemctl restart wazuh-manager   (ou redémarrer le conteneur wazuh.manager)
+-->
+<ossec_config>
+  <!-- 1. Pipeline de notification classé/tagué vers supervision@ (custom-supervision) -->
+  <!--    Toutes les alertes de niveau >= 7 passent par le script, qui classe (catégorie),
+          priorise (P1..P4, relevée si asset.criticality=haute), tague et limite le débit. -->
+  <integration>
+    <name>custom-supervision</name>
+    <!-- Relais SMTP : smtp://hote:25 | smtp+starttls://hote:587 | smtps://hote:465 -->
+    <hook_url>smtp://127.0.0.1:25</hook_url>
+    <!-- Si le relais exige une authentification : <api_key>utilisateur:motdepasse</api_key> -->
+    <level>7</level>
+    <alert_format>json</alert_format>
+  </integration>
+
+  <!-- 2. Conserver aussi les événements bruts (contexte « avant atteinte ») :
+          surveiller le disque, et prévoir une politique ISM/rotation. -->
+  <global>
+    <logall_json>yes</logall_json>
+  </global>
+
+  <!-- 3. Détection de vulnérabilités (Wazuh >= 4.8) -->
+  <vulnerability-detection>
+    <enabled>yes</enabled>
+    <index-status>yes</index-status>
+    <feed-update-interval>60m</feed-update-interval>
+  </vulnerability-detection>
+</ossec_config>
