@@ -1,0 +1,8 @@
+{
+  "to": ["supervision@youzurz.com"],
+  "from": "wazuh-talos@youzurz.com",
+  "subject_prefix": "[TALOS]",
+  "max_per_key_per_hour": 3,
+  "max_per_hour": 60,
+  "min_priority": "P3"
+}
