@@ -1,0 +1,13 @@
+# Copier en CLAUDE.local.md (ignoré par git) et compléter. Jamais de secret ici non plus :
+# seulement des alias ; les clés restent dans ~/.ssh et ~/.talos.
+
+## Serveurs
+| Alias SSH | Rôle | Particularités |
+|---|---|---|
+| srv-a | Wazuh manager ? | |
+| srv-b | ? | |
+| srv-mail | messagerie | Postfix/Dovecot |
+| (talosctl) | TALOS | contexte talosconfig : `talos-reader` |
+
+## Relais SMTP pour supervision@youzurz.com
+- hook_url : smtp+starttls://<relais>:587
