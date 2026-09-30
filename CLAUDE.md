@@ -15,6 +15,10 @@ GLPI, Terraform, Velociraptor, TheHive/Cortex/MISP, Arkime, MinIO. Vue d'ensembl
 - Preuves et résultats d'audit : dans `~/talos-evidence/<hôte>/<date>/` (hors dépôt),
   avec `sha256sum`, copie hors de l'hôte audité.
 - Langue : français pour la doc, les messages de commit et les échanges.
+- IMPORTANT : avant de demander une action à l'utilisateur, **vérifier qu'elle n'est pas
+  déjà faite** (accès GitHub : `git ls-remote`/push ; outil installé : `command -v` ;
+  fichier présent ; service actif ; branche poussée…) et citer la vérification. Ne demander
+  que ce qui reste réellement à faire.
 
 ## Accès
 - Serveurs Linux : SSH (alias dans `~/.ssh/config`, voir `CLAUDE.local.md`).
