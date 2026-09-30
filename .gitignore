@@ -6,3 +6,10 @@ ETAT.json
 *.state
 wazuh/etc/talos-supervision.json
 __pycache__/
+CLAUDE.local.md
+.claude/settings.local.json
+evidence/
+talosconfig*
+kubeconfig*
+*.pem
+id_*
