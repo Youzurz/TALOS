@@ -14,6 +14,10 @@ GLPI, Terraform, Velociraptor, TheHive/Cortex/MISP, Arkime, MinIO. Vue d'ensembl
   préservation des preuves.
 - Preuves et résultats d'audit : dans `~/talos-evidence/<hôte>/<date>/` (hors dépôt),
   avec `sha256sum`, copie hors de l'hôte audité.
+- Sorties sensibles (inventaire, IP, comptes, conteneurs, journaux) : toute commande de
+  collecte proposée à l'utilisateur écrit dans un **fichier local** (chemin indiqué dans
+  `CLAUDE.local.md`, droits 600) et n'affiche rien ; ne jamais lui demander de les coller
+  dans le chat.
 - Langue : français pour la doc, les messages de commit et les échanges.
 - IMPORTANT : avant de demander une action à l'utilisateur, **vérifier qu'elle n'est pas
   déjà faite** (accès GitHub : `git ls-remote`/push ; outil installé : `command -v` ;
