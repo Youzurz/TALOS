@@ -35,9 +35,12 @@ ok()   { printf '  \033[32mOK\033[0m    : %s\n' "$*"; }
 
 # pull <hôte> <dossier_dest> <nom> <chemins_distants>
 # Produit <nom>.tgz, puis REFUSE de le valider s'il est vide.
+# Un 5e argument « optionnel » signale une absence sans la compter comme un échec :
+# sur une pile en conteneurs, /var/log/mail.log n'existe pas, et c'est normal.
 pull() {
-  local h="$1" dest="$2" name="$3" paths="$4"
+  local h="$1" dest="$2" name="$3" paths="$4" opt="${5:-}"
   local out="$dest/$name.tgz" err="$dest/$name.stderr"
+  note() { if [ -n "$opt" ]; then printf '  ---   : %s\n' "$1"; else fail "$1"; fi; }
 
   # tar sur la sortie standard distante ; --ignore-failed-read pour ne pas tout perdre
   # à cause d'un seul fichier illisible.
@@ -51,11 +54,11 @@ pull() {
   [ -s "$err" ] || rm -f "$err"
 
   if [ "$pipe" -ne 0 ] && [ "${entries:-0}" -eq 0 ]; then
-    fail "$name : ssh/tar a échoué (code $pipe) — $(head -c 200 "$err" 2>/dev/null)"
+    note "$name : ssh/tar a échoué (code $pipe) — $(head -c 200 "$err" 2>/dev/null)"
     rm -f "$out"; return 1
   fi
   if [ "${entries:-0}" -lt "$MIN_ENTRIES" ] || [ "${bytes:-0}" -lt "$MIN_BYTES" ]; then
-    fail "$name : archive VIDE ou dérisoire ($entries entrée(s), $bytes octets) — supprimée"
+    note "$name : absent ou vide ($entries entrée(s), $bytes octets)${opt:+ — normal si la pile est en conteneurs}"
     rm -f "$out"; return 1
   fi
   ok "$name : $entries entrée(s), $(du -h "$out" | cut -f1)"
@@ -71,7 +74,7 @@ for h in "${HOSTS[@]}"; do
 
   pull "$h" "$dest" logs-systeme \
       '/var/log/auth.log* /var/log/secure* /var/log/syslog* /var/log/messages* /var/log/dpkg.log*'
-  pull "$h" "$dest" logs-messagerie '/var/log/mail.log* /var/log/maillog*' || true
+  pull "$h" "$dest" logs-messagerie '/var/log/mail.log* /var/log/maillog*' optionnel || true
   pull "$h" "$dest" conf-sensible \
       '/etc/passwd /etc/group /etc/sudoers /etc/sudoers.d /etc/crontab /etc/cron.d /etc/ssh/sshd_config'
 
@@ -90,6 +93,21 @@ for h in "${HOSTS[@]}"; do
     ok "etat-vivant.txt : $(wc -l <"$dest/etat-vivant.txt" | tr -d ' ') lignes"
   else
     fail "etat-vivant.txt vide ou tronqué"; rm -f "$dest/etat-vivant.txt"
+  fi
+
+  # Journaux des conteneurs : une pile en conteneurs (messagerie, antispam, proxy) n'écrit
+  # RIEN dans /var/log. Sans ceci, les preuves de messagerie sont vides sans que ce soit un bug.
+  if "${SSH[@]}" "$h" 'command -v docker >/dev/null && sudo docker info' </dev/null >/dev/null 2>&1; then
+    "${SSH[@]}" "$h" "for c in \$(sudo docker ps --format '{{.Names}}' | grep -Ei '${DOCKER_LOG_PATTERN:-postfix|rspamd|dovecot|mail|smtp}'); do
+         echo \"===== \$c\"
+         sudo docker logs --since '${DOCKER_LOG_SINCE:-168h}' \"\$c\" 2>&1 | tail -n '${DOCKER_LOG_LINES:-20000}'
+       done" </dev/null 2>/dev/null | gzip >"$dest/logs-conteneurs.txt.gz"
+    n=$(gzip -dc "$dest/logs-conteneurs.txt.gz" 2>/dev/null | grep -c '^===== ')
+    if [ "${n:-0}" -gt 0 ]; then
+      ok "logs-conteneurs.txt.gz : $n conteneur(s), $(du -h "$dest/logs-conteneurs.txt.gz" | cut -f1)"
+    else
+      rm -f "$dest/logs-conteneurs.txt.gz"
+    fi
   fi
 
   # Alertes Wazuh : on ne rapatrie pas des dizaines de Go, on prouve ce qui existe.
