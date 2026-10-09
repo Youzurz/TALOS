@@ -61,18 +61,44 @@ Pas par défaut :
 ```
 agent Wazuh ──labels asset.* (agent.conf du groupe)──► alerte (agent.labels)
      │
-manager ─► integratord ─► custom-supervision (niveau ≥ 7)
+manager ─► integratord ─► custom-supervision (niveau Wazuh ≥ 7)
                                ├─ catégorie : compromission | comptes | authentification |
                                │              integrite | vulnerabilite | conformite |
                                │              messagerie | conteneur | reseau | disponibilite | autre
-                               ├─ priorité  : P1 (niv ≥13) P2 (≥10) P3 (≥7) P4,
-                               │              relevée d'un cran si asset.criticality=haute
-                               ├─ tags      : catégorie, priorité, asset.*, mitre:Txxxx, group:*
+                               ├─ gravité   : 1 à 5 (voir le tableau ci-dessous)
+                               ├─ tags      : N<gravité>, gravite:<nom>, catégorie,
+                               │              asset.*, mitre:Txxxx, group:*
+                               ├─ filtre    : gravité < niveau_min → aucun message
                                ├─ anti-inondation : 3/h par (règle, agent), 60/h au total
-                               └─ SMTP ─► supervision@youzurz.com
-                                          Objet : [TALOS][P1][authentification][messagerie] …
-                                          En-têtes : X-TALOS-Priority / -Category / -Asset / -Tags
+                               └─ SMTP ─► boîte de supervision
+                                          Objet : [TALOS][N5 critique][compromission][messagerie] …
+                                          En-têtes : X-TALOS-Level / -Severity / -Category /
+                                                     -Asset / -Tags / -Rule
 ```
+
+### Échelle de gravité : 1 à 5
+
+**1 est le moins grave, 5 le plus grave** — c'est l'inverse de l'échelle `level` de Wazuh,
+qui va de 0 à 15, et de l'ancienne notation P1-P4.
+
+| Gravité | Nom | Niveau Wazuh | Notifié par défaut |
+|---:|---|---|---|
+| **5** | critique | ≥ 14 | **oui** |
+| **4** | majeur | 12-13 | **oui** |
+| 3 | moyen | 9-11 | non |
+| 2 | faible | 6-8 | non |
+| 1 | information | ≤ 5 | non |
+
+Un actif portant `asset.criticality=haute` monte d'un cran : sur un serveur sensible, un fait
+ordinaire ailleurs mérite d'être vu. Une tentative de force brute (niveau Wazuh 10) passe ainsi
+de 3 à 4 sur le serveur de messagerie, et devient notifiable.
+
+Le seuil se règle avec `niveau_min` (4 par défaut). **En dessous du seuil, l'alerte n'est pas
+perdue** : elle reste classée, taguée et consultable dans Wazuh ; seul l'envoi du message est
+supprimé. Mettre `3` pour élargir, `5` pour ne recevoir que le critique.
+
+Les tags `N4`, `N5` et `gravite:majeur` permettent de trier directement dans la boîte aux
+lettres, sans ouvrir le message.
 
 **Attention** : si le relais SMTP est le serveur de messagerie lui-même et qu'il est
 compromis, les notifications passent par une machine non fiable.

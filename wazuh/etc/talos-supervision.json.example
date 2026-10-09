@@ -3,10 +3,12 @@
   "from": "wazuh-talos@example.org",
   "subject_prefix": "[TALOS]",
 
+  "_commentaire_gravite": "Échelle TALOS : 1 information, 2 faible, 3 moyen, 4 majeur, 5 critique. Seules les alertes de gravité >= niveau_min sont envoyées ; les autres restent consultables dans Wazuh. Mettre 3 pour élargir, 5 pour ne recevoir que le critique.",
+  "niveau_min": 4,
+
   "_commentaire_debit": "Anti-inondation : quota horaire. Un envoi qui ÉCHOUE ne consomme pas le quota.",
   "max_per_key_per_hour": 3,
   "max_per_hour": 60,
-  "min_priority": "P3",
 
   "_commentaire_disjoncteur": "Après N échecs d'affilée, les tentatives sont suspendues X secondes, puis une seule sonde est tentée par période. Évite de marteler un relais qui refuse : c'est ainsi qu'un antispam finit par apprendre que les alertes sont du spam.",
   "max_consecutive_failures": 5,

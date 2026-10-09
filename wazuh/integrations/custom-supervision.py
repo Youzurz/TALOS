@@ -11,9 +11,20 @@ de ossec.conf :  custom-supervision <fichier_alerte> <api_key> <hook_url> [...]
 Chaque alerte reçoit :
   catégorie  (compromission, authentification, integrite, comptes, vulnerabilite,
               conformite, reseau, messagerie, conteneur, disponibilite, autre)
-  priorité   P1..P4 (niveau Wazuh, relevé d'un cran si asset.criticality=haute)
-  tags       catégorie, priorité, labels de l'actif (agent.labels.asset.*),
-             techniques MITRE, groupes de règle
+  gravité    1 à 5 — 1 = information, 5 = critique. Déduite du niveau Wazuh, et
+             relevée d'un cran si l'actif porte asset.criticality=haute.
+  tags       N<gravité>, gravite:<nom>, catégorie, labels de l'actif
+             (agent.labels.asset.*), techniques MITRE, groupes de règle
+
+             niveau Wazuh  gravité TALOS
+                  >= 14        5  critique     notifié
+                  12-13        4  majeur       notifié
+                   9-11        3  moyen        non notifié (seuil par défaut)
+                    6-8        2  faible       non notifié
+                   <= 5        1  information  non notifié
+
+Seules les alertes de gravité >= `niveau_min` (4 par défaut) sont envoyées ; en dessous,
+l'alerte reste dans Wazuh mais n'encombre pas la boîte de supervision.
 Les tags sont dans l'objet du mail et dans les en-têtes X-TALOS-* (filtrage côté boîte).
 
 Anti-inondation : au plus N mails/heure par (règle, agent) et M/heure au total ;
@@ -43,7 +54,8 @@ DEFAULTS = {
     "subject_prefix": "[TALOS]",
     "max_per_key_per_hour": 3,
     "max_per_hour": 60,
-    "min_priority": "P4",
+    # Gravité 1 (information) à 5 (critique). En dessous de ce seuil : aucune notification.
+    "niveau_min": 4,
     # Disjoncteur : après N échecs d'affilée, on suspend les tentatives pendant X secondes.
     "max_consecutive_failures": 5,
     "mute_seconds_after_failures": 900,
@@ -68,7 +80,17 @@ CATEGORIES = [
     ("disponibilite", {"service_availability", "system_error", "system_shutdown",
                        "ossec", "agent_disconnected", "low_diskspace"}),
 ]
-PRIORITIES = ["P1", "P2", "P3", "P4"]
+# Échelle de gravité TALOS : 1 = le moins grave, 5 = le plus grave.
+# (Attention : c'est l'INVERSE de l'échelle Wazuh « level », et de l'ancienne P1..P4.)
+# Seuil de notification par défaut : 4. En dessous, l'alerte est classée et tracée,
+# mais aucun message n'est envoyé.
+NIVEAUX = {5: "critique", 4: "majeur", 3: "moyen", 2: "faible", 1: "information"}
+
+# Correspondance niveau Wazuh (0-15) → gravité TALOS (1-5).
+# Lue de haut en bas : le premier seuil atteint gagne.
+SEUILS_WAZUH = [(14, 5), (12, 4), (9, 3), (6, 2), (0, 1)]
+
+CRITICITE_HAUTE = ("haute", "high", "critique", "critical")
 
 
 def log(msg):
@@ -109,19 +131,23 @@ def classify(alert):
     category = next((name for name, gs in CATEGORIES if groups & gs), "autre")
 
     level = int(rule.get("level", 0))
-    prio = 0 if level >= 13 else 1 if level >= 10 else 2 if level >= 7 else 3
-    labels = flatten(alert.get("agent", {}).get("labels"))
-    if labels.get("asset.criticality", "").lower() in ("haute", "high", "critique", "critical"):
-        prio = max(prio - 1, 0)
-    priority = PRIORITIES[prio]
+    niveau = next(n for seuil, n in SEUILS_WAZUH if level >= seuil)
 
-    tags = [category, priority]
+    labels = flatten(alert.get("agent", {}).get("labels"))
+    # Un actif critique monte l'alerte d'un cran : sur un serveur sensible, un fait
+    # ordinaire ailleurs mérite d'être vu.
+    if labels.get("asset.criticality", "").lower() in CRITICITE_HAUTE:
+        niveau = min(niveau + 1, 5)
+
+    # Tags : le niveau d'abord, sous deux formes, pour pouvoir filtrer côté boîte aux
+    # lettres aussi bien sur « N4 » que sur « gravite:majeur ».
+    tags = ["N%d" % niveau, "gravite:" + NIVEAUX[niveau], category]
     tags += ["%s:%s" % (k.split(".", 1)[-1], v) for k, v in sorted(labels.items())
              if k.startswith("asset.")]
     mitre = rule.get("mitre", {})
     tags += ["mitre:" + t for t in mitre.get("id", [])]
     tags += ["group:" + g for g in sorted(groups)]
-    return category, priority, labels, tags
+    return category, niveau, labels, tags
 
 
 def _with_state(mutate):
@@ -204,17 +230,18 @@ def mark_success():
     _with_state(mutate)
 
 
-def build_mail(alert, cfg, category, priority, labels, tags, suppressed):
+def build_mail(alert, cfg, category, niveau, labels, tags, suppressed):
     rule = alert.get("rule", {})
     agent = alert.get("agent", {})
     role = labels.get("asset.role", "")
-    subject = "%s[%s][%s]%s %s — %s (règle %s, niv. %s)" % (
-        cfg["subject_prefix"], priority, category, "[%s]" % role if role else "",
+    subject = "%s[N%d %s][%s]%s %s — %s (règle %s, niv. Wazuh %s)" % (
+        cfg["subject_prefix"], niveau, NIVEAUX[niveau], category,
+        "[%s]" % role if role else "",
         agent.get("name", "?"), rule.get("description", "?"), rule.get("id", "?"),
         rule.get("level", "?"))
 
     lines = [
-        "Priorité      : " + priority,
+        "Gravité       : %d/5 (%s)" % (niveau, NIVEAUX[niveau]),
         "Catégorie     : " + category,
         "Tags          : " + ", ".join(tags),
         "Horodatage    : " + str(alert.get("timestamp", "")),
@@ -244,7 +271,8 @@ def build_mail(alert, cfg, category, priority, labels, tags, suppressed):
     msg["To"] = ", ".join(cfg["to"])
     msg["Date"] = formatdate(localtime=True)
     msg["Message-ID"] = make_msgid(domain=cfg["from"].split("@")[-1])
-    msg["X-TALOS-Priority"] = priority
+    msg["X-TALOS-Level"] = str(niveau)
+    msg["X-TALOS-Severity"] = NIVEAUX[niveau]
     msg["X-TALOS-Category"] = category
     msg["X-TALOS-Asset"] = role or agent.get("name", "")
     msg["X-TALOS-Tags"] = " ".join(tags)[:900]
@@ -282,14 +310,15 @@ def main(argv):
     with open(alert_file) as f:
         alert = json.load(f)
 
-    category, priority, labels, tags = classify(alert)
-    if PRIORITIES.index(priority) > PRIORITIES.index(cfg["min_priority"]):
+    category, niveau, labels, tags = classify(alert)
+    # Seuil de notification : en dessous, l'alerte reste dans Wazuh mais n'est pas notifiée.
+    if niveau < int(cfg.get("niveau_min", 4)):
         return 0
     key = "%s|%s" % (alert.get("rule", {}).get("id"), alert.get("agent", {}).get("id"))
     ok, suppressed = throttle(key, cfg)
     if not ok:
         return 0
-    msg = build_mail(alert, cfg, category, priority, labels, tags, suppressed)
+    msg = build_mail(alert, cfg, category, niveau, labels, tags, suppressed)
     if os.environ.get("TALOS_DRYRUN"):
         print(msg)
         return 0
