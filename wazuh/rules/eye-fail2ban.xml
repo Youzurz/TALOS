@@ -1,0 +1,41 @@
+<!-- EYE : événements Fail2ban émis par fail2ban-wazuh-report.py (schéma ass.cyber.fail2ban.event.v1).
+     Candidat CYB du 09/10/2026. Identité de corrélation : event.public_ip_sha256_16 + event.jail + timestamp. -->
+<group name="fail2ban,eye,ass_cyber,">
+
+  <rule id="101200" level="0">
+    <decoded_as>json</decoded_as>
+    <field name="schema">^ass.cyber.fail2ban.event.v1$</field>
+    <description>EYE : événement Fail2ban (base)</description>
+  </rule>
+
+  <rule id="101201" level="8">
+    <if_sid>101200</if_sid>
+    <field name="event.action">^ban$</field>
+    <description>EYE : bannissement Fail2ban, prison $(event.jail), empreinte $(event.public_ip_sha256_16)</description>
+    <mitre>
+      <id>T1110</id>
+    </mitre>
+  </rule>
+
+  <rule id="101202" level="4">
+    <if_sid>101200</if_sid>
+    <field name="event.action">^unban$</field>
+    <description>EYE : fin de bannissement Fail2ban, prison $(event.jail), empreinte $(event.public_ip_sha256_16)</description>
+  </rule>
+
+  <rule id="101203" level="10">
+    <if_sid>101200</if_sid>
+    <field name="event.action">^ban_burst$</field>
+    <description>EYE : rafale de bannissements Fail2ban, prison $(event.jail), $(event.count) adresses</description>
+    <mitre>
+      <id>T1110</id>
+    </mitre>
+  </rule>
+
+  <rule id="101204" level="5">
+    <if_sid>101200</if_sid>
+    <field name="event.action">^resync$</field>
+    <description>EYE : compteurs Fail2ban remis à zéro, prison $(event.jail)</description>
+  </rule>
+
+</group>

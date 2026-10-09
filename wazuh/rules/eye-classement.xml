@@ -1,0 +1,64 @@
+<!-- EYE : classement des événements qui tombaient dans la règle générique 1002 « Unknown problem ».
+     Mesure du 09/10/2026 : 105 770 alertes 1002 en un jour (48 % du total). Chaque règle donne le bon « quoi » (5W2H)
+     et sépare la sécurité (alerte) de l'exploitation (alerte de bas niveau) et de la télémétrie (niveau 0, non alertée). -->
+<group name="eye,classement,">
+
+  <!-- 61,8 % : PostgreSQL en erreur SQL. Incident d'exploitation réel, pas du bruit. -->
+  <rule id="101210" level="5">
+    <if_sid>1002</if_sid>
+    <location>database-postgresql</location>
+    <match>does not exist</match>
+    <description>Exploitation : PostgreSQL, objet absent (application branchée sur la mauvaise base ?)</description>
+    <group>operations,database,postgresql,</group>
+  </rule>
+  <rule id="101211" level="5" frequency="100" timeframe="600">
+    <if_matched_sid>101210</if_matched_sid>
+    <description>Exploitation : PostgreSQL, plus de 100 erreurs « objet absent » en 10 minutes</description>
+    <group>operations,database,postgresql,service_availability,</group>
+  </rule>
+  <rule id="101212" level="3">
+    <if_sid>1002</if_sid>
+    <location>database-postgresql</location>
+    <description>Exploitation : PostgreSQL, erreur</description>
+    <group>operations,database,postgresql,</group>
+  </rule>
+
+  <!-- 28,3 % : télémétrie Zeek DNS, gardée en archive, pas en alerte. -->
+  <rule id="101213" level="0">
+    <if_sid>1002</if_sid>
+    <location>zeek/dns.log</location>
+    <description>Télémétrie : Zeek DNS</description>
+    <group>telemetrie,zeek,dns,</group>
+  </rule>
+
+  <!-- Instantanés et battements EYE : télémétrie de couverture. -->
+  <rule id="101214" level="0">
+    <if_sid>1002</if_sid>
+    <decoded_as>json</decoded_as>
+    <field name="schema">^ass.cyber.fail2ban.v1$</field>
+    <description>Télémétrie : instantané Fail2ban EYE</description>
+    <group>telemetrie,fail2ban,</group>
+  </rule>
+
+  <!-- Traces DEBUG Keycloak, messages dbus refusés, sondes Gatus. -->
+  <rule id="101215" level="0">
+    <if_sid>1002</if_sid>
+    <location>iam-keycloak</location>
+    <match>DEBUG</match>
+    <description>Télémétrie : trace DEBUG Keycloak</description>
+    <group>telemetrie,keycloak,</group>
+  </rule>
+  <rule id="101216" level="0">
+    <if_sid>1002</if_sid>
+    <match>dbus-daemon</match>
+    <description>Télémétrie : message dbus refusé par la politique</description>
+    <group>telemetrie,dbus,</group>
+  </rule>
+  <rule id="101217" level="3">
+    <if_sid>1002</if_sid>
+    <location>sup_gatus.log</location>
+    <description>Exploitation : sonde de disponibilité Gatus</description>
+    <group>operations,service_availability,gatus,</group>
+  </rule>
+
+</group>
