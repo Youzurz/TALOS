@@ -1,8 +1,14 @@
 {
-  "to": ["supervision@youzurz.com"],
-  "from": "wazuh-talos@youzurz.com",
+  "to": ["supervision@example.org"],
+  "from": "wazuh-talos@example.org",
   "subject_prefix": "[TALOS]",
+
+  "_commentaire_debit": "Anti-inondation : quota horaire. Un envoi qui ÉCHOUE ne consomme pas le quota.",
   "max_per_key_per_hour": 3,
   "max_per_hour": 60,
-  "min_priority": "P3"
+  "min_priority": "P3",
+
+  "_commentaire_disjoncteur": "Après N échecs d'affilée, les tentatives sont suspendues X secondes, puis une seule sonde est tentée par période. Évite de marteler un relais qui refuse : c'est ainsi qu'un antispam finit par apprendre que les alertes sont du spam.",
+  "max_consecutive_failures": 5,
+  "mute_seconds_after_failures": 900
 }

@@ -44,6 +44,9 @@ DEFAULTS = {
     "max_per_key_per_hour": 3,
     "max_per_hour": 60,
     "min_priority": "P4",
+    # Disjoncteur : après N échecs d'affilée, on suspend les tentatives pendant X secondes.
+    "max_consecutive_failures": 5,
+    "mute_seconds_after_failures": 900,
 }
 
 # Première règle qui correspond l'emporte : l'ordre compte.
@@ -121,8 +124,10 @@ def classify(alert):
     return category, priority, labels, tags
 
 
-def throttle(key, cfg):
-    """Retourne (envoyer?, nb_supprimées_pour_cette_clé) ; état partagé et verrouillé."""
+def _with_state(mutate):
+    """Ouvre l'état sous verrou exclusif, applique mutate(st), enregistre, rend son résultat.
+    L'état est remis à zéro à chaque heure, sauf les compteurs de messages retenus et le
+    disjoncteur, qui doivent survivre au changement d'heure."""
     now = int(time.time())
     hour = now - now % 3600
     os.makedirs(os.path.dirname(STATE_FILE), exist_ok=True)
@@ -134,20 +139,69 @@ def throttle(key, cfg):
         except ValueError:
             st = {}
         if st.get("hour") != hour:
-            st = {"hour": hour, "total": 0, "keys": {}, "suppressed": st.get("suppressed", {})}
-        sent = st["keys"].get(key, 0)
-        if sent >= cfg["max_per_key_per_hour"] or st["total"] >= cfg["max_per_hour"]:
-            st["suppressed"][key] = st["suppressed"].get(key, 0) + 1
-            send, supp = False, 0
-        else:
-            st["keys"][key] = sent + 1
-            st["total"] += 1
-            supp = st["suppressed"].pop(key, 0)
-            send = True
+            st = {"hour": hour, "total": 0, "keys": {},
+                  "suppressed": st.get("suppressed", {}),
+                  "fail_streak": st.get("fail_streak", 0),
+                  "muted_until": st.get("muted_until", 0)}
+        for k, v in (("total", 0), ("keys", {}), ("suppressed", {}),
+                     ("fail_streak", 0), ("muted_until", 0)):
+            st.setdefault(k, v)
+        out = mutate(st, now)
         f.seek(0)
         f.truncate()
         json.dump(st, f)
-    return send, supp
+    return out
+
+
+def throttle(key, cfg):
+    """Réserve un envoi. Retourne (envoyer?, nb_retenues_pour_cette_clé).
+
+    La réservation est PROVISOIRE : si l'envoi échoue, release() la rend, pour qu'un
+    message jamais parti ne consomme pas le quota des alertes qui, elles, partiront.
+    Un disjoncteur coupe les tentatives quand le relais refuse en série : sans lui, chaque
+    alerte retente, le relais voit des milliers de rejets et son antispam finit par
+    apprendre que nos alertes sont du spam."""
+    mute = int(cfg.get("mute_seconds_after_failures", 900))
+    max_fail = int(cfg.get("max_consecutive_failures", 5))
+
+    def mutate(st, now):
+        if max_fail and st["fail_streak"] >= max_fail and now < st["muted_until"]:
+            st["suppressed"][key] = st["suppressed"].get(key, 0) + 1
+            return False, 0
+        if (st["keys"].get(key, 0) >= cfg["max_per_key_per_hour"]
+                or st["total"] >= cfg["max_per_hour"]):
+            st["suppressed"][key] = st["suppressed"].get(key, 0) + 1
+            return False, 0
+        st["keys"][key] = st["keys"].get(key, 0) + 1
+        st["total"] += 1
+        return True, st["suppressed"].pop(key, 0)
+
+    return _with_state(mutate)
+
+
+def release(key, suppressed, mute_seconds=900):
+    """Rend une réservation dont l'envoi a échoué et arme le disjoncteur.
+    Retourne True si le disjoncteur vient de se déclencher (pour ne le journaliser qu'une fois)."""
+    def mutate(st, now):
+        if st["keys"].get(key, 0) > 0:
+            st["keys"][key] -= 1
+        if st["total"] > 0:
+            st["total"] -= 1
+        # le message n'est jamais parti : il compte lui-même comme retenu
+        st["suppressed"][key] = st["suppressed"].get(key, 0) + suppressed + 1
+        st["fail_streak"] += 1
+        was_open = now < st["muted_until"]
+        st["muted_until"] = now + mute_seconds
+        return not was_open
+    return _with_state(mutate)
+
+
+def mark_success():
+    """Réarme le disjoncteur après un envoi réussi."""
+    def mutate(st, _now):
+        st["fail_streak"] = 0
+        st["muted_until"] = 0
+    _with_state(mutate)
 
 
 def build_mail(alert, cfg, category, priority, labels, tags, suppressed):
@@ -239,11 +293,15 @@ def main(argv):
     if os.environ.get("TALOS_DRYRUN"):
         print(msg)
         return 0
+    mute = int(cfg.get("mute_seconds_after_failures", 900))
     try:
         send(msg, hook_url, api_key)
     except Exception as e:  # noqa: BLE001 — integratord ne doit jamais planter
-        log("échec d'envoi (%s) : %s" % (hook_url, e))
+        if release(key, suppressed, mute):
+            log("échec d'envoi (%s) : %s — tentatives suspendues %d s "
+                "(les alertes restent comptées comme retenues)" % (hook_url, e, mute))
         return 2
+    mark_success()
     return 0
 
 

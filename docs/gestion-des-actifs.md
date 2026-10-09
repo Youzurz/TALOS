@@ -75,8 +75,37 @@ manager ─► integratord ─► custom-supervision (niveau ≥ 7)
 ```
 
 **Attention** : si le relais SMTP est le serveur de messagerie lui-même et qu'il est
-compromis, les notifications passent par une machine non fiable. Prévoir un relais
-externe (`smtp+starttls://…:587` avec `api_key` au format `utilisateur:motdepasse`).
+compromis, les notifications passent par une machine non fiable.
+
+### Toujours passer par la soumission authentifiée, jamais par le port 25
+
+Envoyer sur le port 25 revient à se présenter comme un serveur de messagerie **extérieur et
+anonyme**. Un antispam correctement réglé rejette alors le message, et il a raison : l'IP émettrice
+est privée, sans DNS inverse, absente du SPF, et le message n'est pas signé.
+
+Configuration correcte, avec une boîte dédiée :
+
+- `hook_url` : `smtp+starttls://<hôte-mail>:587`
+- `api_key` : `<boîte-dédiée>:<mot-de-passe>`
+
+La soumission authentifiée écarte les contrôles destinés aux serveurs extérieurs et fait signer le
+message en DKIM par le serveur de messagerie.
+
+> **Ne jamais désactiver ni abaisser l'antispam pour faire passer les alertes.** Le corps d'une
+> alerte contient du texte issu des journaux, donc potentiellement écrit par un attaquant : c'est
+> exactement ce qu'il faut continuer d'analyser. Un chemin de réexpédition non analysé depuis une
+> machine compromise est une voie d'envoi de spam, qui dégrade la réputation de l'IP et du domaine.
+
+### Disjoncteur : ne pas marteler un relais qui refuse
+
+`custom-supervision` suspend les tentatives après `max_consecutive_failures` échecs d'affilée, puis
+ne tente plus qu'une sonde par `mute_seconds_after_failures`. La reprise est automatique dès que le
+relais refonctionne. Un envoi qui échoue **ne consomme pas** le quota horaire et reste compté comme
+retenu, de sorte qu'aucune alerte ne disparaît en silence.
+
+Sans ce garde-fou, chaque alerte retente indéfiniment : le relais accumule les rejets et son
+antispam finit par **apprendre que les alertes sont du spam**, ce qui bloque la notification même
+une fois l'expéditeur corrigé.
 
 ## 5. Déploiement, par étapes
 
