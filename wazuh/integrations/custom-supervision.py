@@ -38,6 +38,7 @@ import smtplib
 import socket
 import ssl
 import sys
+import tempfile
 import time
 from email.message import EmailMessage
 from email.utils import formatdate, make_msgid
@@ -45,7 +46,26 @@ from urllib.parse import urlparse
 
 WAZUH_PATH = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 CONFIG_FILE = os.path.join(WAZUH_PATH, "etc", "talos-supervision.json")
-STATE_FILE = os.environ.get("TALOS_STATE") or os.path.join(WAZUH_PATH, "var", "talos-supervision.state")
+
+
+def _state_path():
+    """Premier emplacement réellement accessible en écriture.
+
+    L'intégration est exécutée par le compte « wazuh », pas par root : selon les
+    installations, /var/ossec/var appartient à root sans droit d'écriture pour le groupe.
+    Choisir un chemin en dur y ferait échouer l'ouverture du fichier d'état à CHAQUE
+    alerte, donc plus aucune notification. On essaie donc dans l'ordre, et on retient le
+    premier dossier où l'on peut écrire."""
+    if os.environ.get("TALOS_STATE"):
+        return os.environ["TALOS_STATE"]
+    for d in (os.path.join(WAZUH_PATH, "var"), os.path.join(WAZUH_PATH, "logs"),
+              tempfile.gettempdir()):
+        if os.path.isdir(d) and os.access(d, os.W_OK):
+            return os.path.join(d, "talos-supervision.state")
+    return os.path.join(tempfile.gettempdir(), "talos-supervision.state")
+
+
+STATE_FILE = _state_path()
 LOG_FILE = os.path.join(WAZUH_PATH, "logs", "integrations.log")
 
 DEFAULTS = {
