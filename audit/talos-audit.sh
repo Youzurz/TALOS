@@ -289,15 +289,34 @@ if have cscli || [ -n "$CSC" ]; then
 else
   check MISS "CrowdSec absent"
 fi
-if have fail2ban-client; then
-  run 08-fail2ban.txt fail2ban-client status
-  for j in $(fail2ban-client status 2>/dev/null | sed -n 's/.*Jail list:\s*//p' | tr ',' ' '); do run 08-fail2ban.txt fail2ban-client status "$j"; done
-  PA="$(fail2ban-client get dbpurgeage 2>/dev/null | grep -oE '[0-9]+' | head -n1)"
-  if [ -n "$PA" ] && [ "$PA" -lt 2592000 ]; then check WARN "fail2ban : historique purgé après $((PA/86400)) j (dbpurgeage)"
-  else check INFO "fail2ban dbpurgeage : ${PA:-?} s"; fi
-else
-  check MISS "fail2ban absent"
+# fail2ban tourne souvent en CONTENEUR, le service de l'hôte étant inactif. Ne chercher que
+# sur l'hôte produit un faux « absent ». On examine donc l'hôte ET chaque conteneur dont le
+# nom évoque fail2ban, et on ne retient que ceux qui répondent avec une liste de prisons :
+# un exportateur de métriques porte un nom voisin sans être fail2ban.
+F2B_FOUND=0
+f2b_report() {   # f2b_report <étiquette> <conteneur|"">
+  local tag="$1" c="$2" st jails n
+  st="$(xin "$c" fail2ban-client status 2>/dev/null)"
+  jails="$(printf '%s' "$st" | sed -n 's/.*Jail list:[[:space:]]*//p')"
+  [ -n "$jails" ] || { [ -n "$c" ] && check INFO "$tag : pas une instance fail2ban (exportateur ?)"; return 1; }
+  F2B_FOUND=1
+  n="$(printf '%s' "$st" | sed -n 's/.*Number of jail:[[:space:]]*//p')"
+  check OK "fail2ban $tag : ${n:-?} prison(s) — $jails"
+  { echo "### $tag"; printf '%s\n' "$st"; } >>"$OUT/08-fail2ban.txt"
+  for j in $(printf '%s' "$jails" | tr ',' ' '); do
+    { xin "$c" fail2ban-client status "$j" 2>&1 | redact; echo; } >>"$OUT/08-fail2ban.txt"
+  done
+  PA="$(xin "$c" fail2ban-client get dbpurgeage 2>/dev/null | grep -oE '[0-9]+' | head -n1)"
+  if [ -n "$PA" ] && [ "$PA" -lt 2592000 ]; then
+    check WARN "fail2ban $tag : historique purgé après $((PA/86400)) j (dbpurgeage)"
+  fi
+  return 0
+}
+have fail2ban-client && f2b_report "(hôte)" ""
+if [ -n "$DOCKER" ]; then
+  for c in $(containers | grep -Ei 'f2b|fail2ban' | awk '{print $1}'); do f2b_report "(conteneur $c)" "$c"; done
 fi
+[ "$F2B_FOUND" -eq 0 ] && check MISS "fail2ban absent (ni sur l'hôte, ni en conteneur)"
 
 # ------------------------------------------ 8. Velociraptor / GLPI / pile SOC
 echo "[*] Velociraptor, GLPI, pile SOC"
