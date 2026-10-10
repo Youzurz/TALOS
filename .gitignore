@@ -1,0 +1,4 @@
+# Archives de transcripts : contiennent des échanges bruts (clés, jetons, code privé)
+codex-claude-backups/
+codex-claude-*.tar.gz
+index.tsv
